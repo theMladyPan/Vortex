@@ -147,7 +147,7 @@ void loop() {
 
         float rotationX = gx * 0.001;  // 1000˚/s -> 1˚/ms
 
-        servoYPos.setAngle(-angle_x + rotationX*50);
+        servoYPos.setAngle(-angle_x + rotationX*100);
         
         int64_t dt = esp_timer_get_time() - time_start;
         if (dt < 1000) {

@@ -1,71 +1,96 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
-#include <SPI.h>
 #include <BMI160Gen.h>
+#include <ESP32Servo.h>
+
+Servo sx_pos;
+Servo sy_pos;
+Servo sx_neg;
+Servo sy_neg;
 
 TFT_eSPI tft = TFT_eSPI(135, 240);
 
-#define PIN_MISO  27  // GPIO27
-#define PIN_MOSI  26  // GPIO26
-#define PIN_SCK   25  // GIPO25
-#define PIN_CS    33  // GPIO33
 
 float convertRawGyro(int gRaw) {
-  // since we are using 250 degrees/seconds range
-  // -250 maps to a raw value of -32768
-  // +250 maps to a raw value of 32767
+    float g = (gRaw * 1000.0) / 32768.0;
 
-  float g = (gRaw * 250.0) / 32768.0;
+    return g;
+}
 
-  return g;
+float convertRawAccel(int aRaw) {
+    float a = (aRaw * 2.0) / 32768.0;
+
+    return a;
 }
 
 void setup() {
-  Serial.begin(115200);
-  delay(100);
-  ESP_LOGI("BMI160", "Starting BMI160");
-  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
-  SPI.setFrequency(1000000);
+    Serial.begin(1000000);
+    Wire.begin(21, 22, 1000000);
+    tft.init();
+    tft.setTextFont(1);
+    tft.setRotation(3);
+    tft.fillScreen(TFT_BLACK);
+    tft.drawString("Hello", 0, 50, 4);
 
-  // TFT setup
-  /*
-  tft.init();
-  tft.setTextFont(1);
-  tft.setRotation(3);
-  tft.fillScreen(TFT_BLACK);
-  tft.drawString("Hello", 0, 50, 4);
-  delay(1000);  
-  */
+	ESP32PWM::allocateTimer(0);
+	ESP32PWM::allocateTimer(1);
+	ESP32PWM::allocateTimer(2);
+	ESP32PWM::allocateTimer(3);
+    sx_pos.setPeriodHertz(200);
+    sx_pos.attach(25, 500, 2500);
+    sy_pos.setPeriodHertz(200);
+    sy_pos.attach(26, 500, 2500);
+    sx_neg.setPeriodHertz(200);
+    sx_neg.attach(27, 500, 2500);
+    sy_neg.setPeriodHertz(200);
+    sy_neg.attach(33, 500, 2500);
 
-  BMI160.begin(BMI160GenClass::SPI_MODE, 33);
-  uint8_t dev_id = BMI160.getDeviceID();
+    while(!Serial) { 
+        delay(1);
+    }
+    ESP_LOGI("BMI160", "Starting BMI160");
 
-  ESP_LOGI("BMI160", "Device ID: %d", dev_id);
+    ESP_LOGD("BMI160", "Initializing IMU");
+    BMI160.begin(BMI160GenClass::I2C_MODE, Wire, 0x68, 0);
+    ESP_LOGD("BMI160", "Getting device ID");
+    uint8_t dev_id = BMI160.getDeviceID();
 
-   // Set the accelerometer range to 250 degrees/second
-  BMI160.setGyroRange(250);
+    ESP_LOGI("BMI160", "Device ID: %d", dev_id);
+
+    // Set the accelerometer range to 250 degrees/second
+    ESP_LOGD("BMI160", "Setting accelerometer range ...");
+    BMI160.setFullScaleGyroRange(BMI160_GYRO_RANGE_1000);
+    ESP_LOGD("BMI160", "Setting accelerometer range done.");
+    BMI160.setFullScaleAccelRange(BMI160_ACCEL_RANGE_2G);
+    
 }
 
 void loop() {
-  int gxRaw, gyRaw, gzRaw;         // raw gyro values
-  float gx, gy, gz;
+    int gxRaw, gyRaw, gzRaw;         // raw gyro values
+    int axRaw, ayRaw, azRaw;         // raw accelerometer values
+    float gx = 0, gy = 0, gz = 0;
+    float ax = 0, ay = 0, az = 0;
 
-  // read raw gyro measurements from device
-  BMI160.readGyro(gxRaw, gyRaw, gzRaw);
+    while(1) {
+        int64_t time_start = esp_timer_get_time();
+        // read raw gyro measurements from device
+        BMI160.readGyro(gxRaw, gyRaw, gzRaw);
+        BMI160.readAccelerometer(axRaw, ayRaw, azRaw);
 
-  // convert the raw gyro data to degrees/second
-  gx = convertRawGyro(gxRaw);
-  gy = convertRawGyro(gyRaw);
-  gz = convertRawGyro(gzRaw);
+        // convert the raw accelerometer data to degrees/second
+        ax = convertRawAccel(axRaw) * 0.01 + ax * 0.99;
+        ay = convertRawAccel(ayRaw) * 0.01 + ay * 0.99;
+        az = convertRawAccel(azRaw) * 0.01 + az * 0.99;
 
-  // display tab-separated gyro x/y/z values
-  Serial.print("g:\t");
-  Serial.print(gx);
-  Serial.print("\t");
-  Serial.print(gy);
-  Serial.print("\t");
-  Serial.print(gz);
-  Serial.println();
+        // convert the raw gyro data to degrees/second
+        gx = convertRawGyro(gxRaw) * 0.01 + gx * 0.99;
+        gy = convertRawGyro(gyRaw) * 0.01 + gy * 0.99;
+        gz = convertRawGyro(gzRaw) * 0.01 + gz * 0.99;
+        int64_t dt = esp_timer_get_time() - time_start;
+        sx_pos.writeMicroseconds(1500 + gz * 100 + ax * 1000);
 
-  delay(500);
+        // display tab-separated gyro x/y/z values
+        Serial.printf("\rax: %.2f, ay: %.2f, az: %.2f, gx: %d°, \tgy: %d°, \tgz: %d°, \tdt: %lldus", ax, ay, az, (int)gx, (int)gy, (int)gz, dt);
+        //delay(10);
+    }
 }

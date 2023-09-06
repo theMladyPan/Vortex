@@ -114,7 +114,6 @@ void loop() {
     IServo servoYNeg(27);
     IServo throttle(32);
 
-
     while(1) {
         int64_t time_start = esp_timer_get_time();
         // read raw gyro measurements from device
@@ -128,25 +127,32 @@ void loop() {
 
         axesToVector(vecAcc, ax, ay, az);
         float len = vectorLength(vecAcc);
+        // convert to unit vector
+        for (auto &v : vecAcc) {
+            v /= len;
+        }
+        len = vectorLength(vecAcc);
 
         // ESP_LOGI("BMI160", "Accel: %f, %f, %f", ax, ay, az);
         // convert the raw gyro data to degrees/second
-        //gx = convertRawGyro(gxRaw) * 0.01 + gx * 0.99;
-        //gy = convertRawGyro(gyRaw) * 0.01 + gy * 0.99;
+        gx = convertRawGyro(gxRaw);
+        gy = convertRawGyro(gyRaw);
         gz = convertRawGyro(gzRaw);
         angle_x_set = 0;
         if(ay >= 1.0) ay = 1.0;
         if(ay <= -1.0) ay = -1.0;
         float asiny = asin(ay);
         angle_x = asin(ay) * -180 / M_PI;
+        pid_sx_pos.Compute();
 
-        servoYPos.setAngle(corr_x);
+        float rotationX = gx * 0.001;  // 1000˚/s -> 1˚/ms
+
+        servoYPos.setAngle(-angle_x + rotationX*50);
         
         int64_t dt = esp_timer_get_time() - time_start;
         if (dt < 1000) {
             delayMicroseconds(1000 - dt);
         }
-        pid_sx_pos.Compute();
         if (iter++ % 100 == 0) {
             ESP_LOGI("BMI160", "Angle: %.2f, %.2f, dt: %lldus", angle_x, corr_x, dt);
             // print vector length

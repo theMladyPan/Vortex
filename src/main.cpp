@@ -1,16 +1,56 @@
 #include <Arduino.h>
-#include <TFT_eSPI.h>
 #include <BMI160Gen.h>
-#include <ESP32Servo.h>
 #include <PID_v1.h>
 #include <math.h>
 #include <vector>
 #include <xlog.h>
+#include <chrono>
+
+#ifdef TFT_DISPLAY
+#include <TFT_eSPI.h>
+TFT_eSPI tft = TFT_eSPI(135, 240);
+#endif // TFT_DISPLAY
 
 #undef NDEBUG
 
-TFT_eSPI tft = TFT_eSPI(135, 240);
+#ifdef RP2040
+#include "RP2040_ISR_Servo.h"
+#define PIN_SERVO_XPOS 18
+#define PIN_SERVO_XNEG 19
+#define PIN_SERVO_YPOS 20
+#define PIN_SERVO_YNEG 21
+#define PIN_THROTTLE 22
 
+#define SERVO_PIN_1       10
+#define SERVO_PIN_2       11
+#define SERVO_PIN_3       12
+#define SERVO_PIN_4       13
+#define SERVO_PIN_5       14
+#define SERVO_PIN_6       15
+#define NUM_SERVOS        6
+
+typedef struct
+{
+  int     servoIndex;
+  uint8_t servoPin;
+} ISR_servo_t;
+
+ISR_servo_t ISR_servo[NUM_SERVOS] =
+{
+  { -1, SERVO_PIN_1 }, { -1, SERVO_PIN_2 }, { -1, SERVO_PIN_3 }, { -1, SERVO_PIN_4 }, { -1, SERVO_PIN_5 }, { -1, SERVO_PIN_6 }
+};
+#endif // RP2040
+
+#ifdef CONFIG_IDF_TARGET_ESP32
+#include <ESP32Servo.h>
+#define PIN_SERVO_XPOS 33
+#define PIN_SERVO_XNEG 26
+#define PIN_SERVO_YPOS 25
+#define PIN_SERVO_YNEG 27
+#define PIN_THROTTLE 32
+
+
+#endif // CONFIG_IDF_TARGET_ESP32
 
 double Kp=1, Ki=10, Kd=0;
 
@@ -29,7 +69,9 @@ float convertRawAccel(int aRaw) {
 }
 
 class IServo {
+#ifdef CONFIG_IDF_TARGET_ESP32 
 public:
+    IServo() { }
     IServo(Servo &servo) {
         _servo = servo;
     }
@@ -46,10 +88,21 @@ public:
 
         int ms = 1500 + (angle * 11.11111); 
         _servo.writeMicroseconds(ms);
-        
     }
+
 private:
     Servo _servo;
+
+#else
+public:
+    IServo(int pin) {
+
+    }
+    void setAngle(int angle) {
+
+    }
+    
+#endif // CONFIG_IDF_TARGET_ESP32
 };
 
 void axesToVector(std::array<float, 3> &vec, float ax, float ay, float az) {
@@ -64,14 +117,14 @@ float vectorLength(std::array<float, 3> &vec) {
 
 void setup() {
     Serial.begin(1000000);
-    Wire.begin(21, 22, 1000000);
-    #ifdef __TFT
+    Wire.setClock(1000000);
+    #ifdef TFT_DISPLAY
     tft.init();
     tft.setTextFont(1);
     tft.setRotation(3);
     tft.fillScreen(TFT_BLACK);
     tft.drawString("Hello", 0, 50, 4);
-    #endif // __TFT
+    #endif // TFT_DISPLAY
 
 	// ESP32PWM::allocateTimer(0); 
 
@@ -102,18 +155,17 @@ void loop() {
     float gx = 0, gy = 0, gz = 0;
     float ax = 0, ay = 0, az = 0;
     std::array<float, 3> vecAcc;
-    std::array<float, 4> quatAcc;
 
     uint64_t iter = 0;
 
-    IServo servoXPos(33);
-    IServo servoYPos(25);
-    IServo servoXNeg(26);
-    IServo servoYNeg(27);
-    IServo throttle(32);
+    IServo servoXPos(PIN_SERVO_XPOS);
+    IServo servoYPos(PIN_SERVO_YPOS);
+    IServo servoXNeg(PIN_SERVO_XNEG);
+    IServo servoYNeg(PIN_SERVO_YNEG);
+    IServo throttle(PIN_THROTTLE);
 
     while(1) {
-        int64_t time_start = esp_timer_get_time();
+        auto start = std::chrono::high_resolution_clock::now();
         // read raw gyro measurements from device
         BMI160.readGyro(gxRaw, gyRaw, gzRaw);
         BMI160.readAccelerometer(axRaw, ayRaw, azRaw);
@@ -146,8 +198,10 @@ void loop() {
         float rotationX = gx * 0.001;  // 1000˚/s -> 1˚/ms
 
         servoYPos.setAngle(-angle_x + rotationX*50);
-        
-        int64_t dt = esp_timer_get_time() - time_start;
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        int dt = duration.count();
         if (dt < 1000) {
             delayMicroseconds(1000 - dt);
         }

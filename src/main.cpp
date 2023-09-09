@@ -80,9 +80,6 @@ void setup() {
     pid_sx_pos.SetSampleTime(1);
     pid_sx_pos.SetOutputLimits(-90, 90);
 
-    while(!Serial) { 
-        delay(1);
-    }
     xlogi("Starting BMI160");
 
     xlogd("Initializing IMU");

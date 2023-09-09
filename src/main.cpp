@@ -4,8 +4,10 @@
 #include <ESP32Servo.h>
 #include <PID_v1.h>
 #include <math.h>
-#include <esp_log.h>
 #include <vector>
+#include <xlog.h>
+
+#undef NDEBUG
 
 TFT_eSPI tft = TFT_eSPI(135, 240);
 
@@ -63,16 +65,15 @@ float vectorLength(std::array<float, 3> &vec) {
 void setup() {
     Serial.begin(1000000);
     Wire.begin(21, 22, 1000000);
+    #ifdef __TFT
     tft.init();
     tft.setTextFont(1);
     tft.setRotation(3);
     tft.fillScreen(TFT_BLACK);
     tft.drawString("Hello", 0, 50, 4);
+    #endif // __TFT
 
-	ESP32PWM::allocateTimer(0);
-	ESP32PWM::allocateTimer(1);
-	ESP32PWM::allocateTimer(2);
-	ESP32PWM::allocateTimer(3);
+	// ESP32PWM::allocateTimer(0); 
 
     //turn the PID on
     pid_sx_pos.SetMode(AUTOMATIC);
@@ -82,19 +83,19 @@ void setup() {
     while(!Serial) { 
         delay(1);
     }
-    ESP_LOGI("BMI160", "Starting BMI160");
+    xlogi("Starting BMI160");
 
-    ESP_LOGD("BMI160", "Initializing IMU");
+    xlogd("Initializing IMU");
     BMI160.begin(BMI160GenClass::I2C_MODE, Wire, 0x68, 0);
-    ESP_LOGD("BMI160", "Getting device ID");
+    xlogd("Getting device ID");
     uint8_t dev_id = BMI160.getDeviceID();
 
-    ESP_LOGI("BMI160", "Device ID: %d", dev_id);
+    xlogi("Device ID: " << dev_id);
 
     // Set the accelerometer range to 250 degrees/second
-    ESP_LOGD("BMI160", "Setting accelerometer range ...");
+    xlogd("Setting accelerometer range ...");
     BMI160.setFullScaleGyroRange(BMI160_GYRO_RANGE_1000);
-    ESP_LOGD("BMI160", "Setting accelerometer range done.");
+    xlogd("Setting accelerometer range done.");
     BMI160.setFullScaleAccelRange(BMI160_ACCEL_RANGE_2G);
 }
 
@@ -133,7 +134,7 @@ void loop() {
         }
         len = vectorLength(vecAcc);
 
-        // ESP_LOGI("BMI160", "Accel: %f, %f, %f", ax, ay, az);
+        // xlogi("BMI160", "Accel: %f, %f, %f", ax, ay, az);
         // convert the raw gyro data to degrees/second
         gx = convertRawGyro(gxRaw);
         gy = convertRawGyro(gyRaw);
@@ -147,16 +148,16 @@ void loop() {
 
         float rotationX = gx * 0.001;  // 1000˚/s -> 1˚/ms
 
-        servoYPos.setAngle(-angle_x + rotationX*100);
+        servoYPos.setAngle(-angle_x + rotationX*50);
         
         int64_t dt = esp_timer_get_time() - time_start;
         if (dt < 1000) {
             delayMicroseconds(1000 - dt);
         }
         if (iter++ % 100 == 0) {
-            ESP_LOGI("BMI160", "Angle: %.2f, %.2f, dt: %lldus", angle_x, corr_x, dt);
+            xlogi("Angle: " << angle_x << ", " << corr_x << ", dt: " << dt << "s");
             // print vector length
-            ESP_LOGI("BMI160", "Vector length: %f", len);
+            xlogi("Vector length: " << len);
         }
     }
 }

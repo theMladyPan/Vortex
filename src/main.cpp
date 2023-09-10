@@ -3,8 +3,10 @@
 #include <PID_v1.h>
 #include <math.h>
 #include <vector>
-#include <xlog.h>
+// #include <xlog.h>
 #include <chrono>
+#include "ESP32_ISR_Servo.h"
+#include "esp_log.h"
 
 #ifdef TFT_DISPLAY
 #include <TFT_eSPI.h>
@@ -13,44 +15,14 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 
 #undef NDEBUG
 
-#ifdef RP2040
-#include "RP2040_ISR_Servo.h"
-#define PIN_SERVO_XPOS 18
-#define PIN_SERVO_XNEG 19
-#define PIN_SERVO_YPOS 20
-#define PIN_SERVO_YNEG 21
-#define PIN_THROTTLE 22
-
-#define SERVO_PIN_1       10
-#define SERVO_PIN_2       11
-#define SERVO_PIN_3       12
-#define SERVO_PIN_4       13
-#define SERVO_PIN_5       14
-#define SERVO_PIN_6       15
-#define NUM_SERVOS        6
-
-typedef struct
-{
-  int     servoIndex;
-  uint8_t servoPin;
-} ISR_servo_t;
-
-ISR_servo_t ISR_servo[NUM_SERVOS] =
-{
-  { -1, SERVO_PIN_1 }, { -1, SERVO_PIN_2 }, { -1, SERVO_PIN_3 }, { -1, SERVO_PIN_4 }, { -1, SERVO_PIN_5 }, { -1, SERVO_PIN_6 }
-};
-#endif // RP2040
-
-#ifdef CONFIG_IDF_TARGET_ESP32
-#include <ESP32Servo.h>
 #define PIN_SERVO_XPOS 33
 #define PIN_SERVO_XNEG 26
 #define PIN_SERVO_YPOS 25
 #define PIN_SERVO_YNEG 27
 #define PIN_THROTTLE 32
 
-
-#endif // CONFIG_IDF_TARGET_ESP32
+#define MIN_MICROS 500
+#define MAX_MICROS 2500
 
 double Kp=1, Ki=10, Kd=0;
 
@@ -69,40 +41,19 @@ float convertRawAccel(int aRaw) {
 }
 
 class IServo {
-#ifdef CONFIG_IDF_TARGET_ESP32 
 public:
     IServo() { }
-    IServo(Servo &servo) {
-        _servo = servo;
-    }
-    IServo(int pin) {
-        _servo = Servo();
-        _servo.attach(pin, 500, 2500);
-        _servo.setPeriodHertz(200);
+    IServo(uint8_t pin) {
+
+	    _servoIndex = ESP32_ISR_Servos.setupServo(pin, MIN_MICROS, MAX_MICROS);
+        
     }
     void setAngle(int angle) {
-        // 500ms = -90°
-        // 1500ms = 0°
-        // 2500ms = 90°
-        // 1° = 11.11111ms
-
-        int ms = 1500 + (angle * 11.11111); 
-        _servo.writeMicroseconds(ms);
+        ESP32_ISR_Servos.setPosition(_servoIndex, angle + 90);
     }
 
 private:
-    Servo _servo;
-
-#else
-public:
-    IServo(int pin) {
-
-    }
-    void setAngle(int angle) {
-
-    }
-    
-#endif // CONFIG_IDF_TARGET_ESP32
+    int8_t _servoIndex;
 };
 
 void axesToVector(std::array<float, 3> &vec, float ax, float ay, float az) {
@@ -117,7 +68,7 @@ float vectorLength(std::array<float, 3> &vec) {
 
 void setup() {
     Serial.begin(1000000);
-    Wire.setClock(1000000);
+    Wire.begin(I2C_SDA, I2C_SCL, 1000000); // join i2c bus (address optional for master
     #ifdef TFT_DISPLAY
     tft.init();
     tft.setTextFont(1);
@@ -133,20 +84,23 @@ void setup() {
     pid_sx_pos.SetSampleTime(1);
     pid_sx_pos.SetOutputLimits(-90, 90);
 
-    xlogi("Starting BMI160");
+    ESP_LOGI("main", "Starting BMI160");
 
-    xlogd("Initializing IMU");
+    ESP_LOGD("main", "Initializing IMU");
     BMI160.begin(BMI160GenClass::I2C_MODE, Wire, 0x68, 0);
-    xlogd("Getting device ID");
+    ESP_LOGD("main", "Getting device ID");
     uint8_t dev_id = BMI160.getDeviceID();
 
-    xlogi("Device ID: " << dev_id);
+    ESP_LOGI("main", "Device ID: %d", dev_id);
 
     // Set the accelerometer range to 250 degrees/second
-    xlogd("Setting accelerometer range ...");
+    ESP_LOGD("main", "Setting accelerometer range ...");
     BMI160.setFullScaleGyroRange(BMI160_GYRO_RANGE_1000);
-    xlogd("Setting accelerometer range done.");
+    ESP_LOGD("main", "Setting accelerometer range done.");
     BMI160.setFullScaleAccelRange(BMI160_ACCEL_RANGE_2G);
+
+
+	ESP32_ISR_Servos.useTimer(0);
 }
 
 void loop() {
@@ -183,7 +137,7 @@ void loop() {
         }
         len = vectorLength(vecAcc);
 
-        // xlogi("BMI160", "Accel: %f, %f, %f", ax, ay, az);
+        // ESP_LOGI("main", "BMI160", "Accel: %f, %f, %f", ax, ay, az);
         // convert the raw gyro data to degrees/second
         gx = convertRawGyro(gxRaw);
         gy = convertRawGyro(gyRaw);
@@ -206,9 +160,10 @@ void loop() {
             delayMicroseconds(1000 - dt);
         }
         if (iter++ % 100 == 0) {
-            xlogi("Angle: " << angle_x << ", " << corr_x << ", dt: " << dt << "s");
+            // ESP_LOGI("main", "Angle: " << angle_x << ", " << corr_x << ", dt: " << dt << "s");
+            ESP_LOGI("main", "Angle: %f, %f, dt: %d", angle_x, corr_x, dt);
             // print vector length
-            xlogi("Vector length: " << len);
+            ESP_LOGI("main", "Vector length: %f", len);
         }
     }
 }

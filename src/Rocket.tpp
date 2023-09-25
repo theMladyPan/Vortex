@@ -10,6 +10,7 @@ template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::convert_acc_to_orientation() {
     // convert _acc_vals to roll, pitch
     double current_acceleration = _acc_vals.norm() - 1;  // g
+    _throttle_corr = -current_acceleration;
 
     Eigen::Vector3d acc_norm = _acc_vals.normalized();
 

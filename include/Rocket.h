@@ -53,6 +53,7 @@ private:
 
     // calculated values for steering:
     Eigen::Vector3d _corrections;  // roll, pitch, yaw
+    double _throttle_corr;
 
     void convert_acc_to_orientation();
 

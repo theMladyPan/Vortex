@@ -58,6 +58,17 @@
         "list": "cpp",
         "set": "cpp",
         "mutex": "cpp",
-        "thread": "cpp"
-    }
+        "thread": "cpp",
+        "arduinoeigendense.h": "c",
+        "compare": "cpp",
+        "complex": "cpp",
+        "concepts": "cpp",
+        "netfwd": "cpp",
+        "numbers": "cpp",
+        "ranges": "cpp",
+        "semaphore": "cpp",
+        "stop_token": "cpp",
+        "*.tpp": "cpp"
+    },
+    "C_Cpp.default.compilerPath": "/home/stanke/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-gcc"
 }

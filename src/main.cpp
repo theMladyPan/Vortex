@@ -1,12 +1,10 @@
 #include <Arduino.h>
-#include <BMI160Gen.h>
-#include <PID_v1.h>
-#include <math.h>
-#include <vector>
-// #include <xlog.h>
-#include <chrono>
-#include "ESP32_ISR_Servo.h"
 #include "esp_log.h"
+#include "Rocket.h"
+#include "IMU/IMU.h"
+#include "Regulator/PIDRegulator.h"
+#include "Control/Remote.h"
+#include <chrono>
 
 #ifdef TFT_DISPLAY
 #include <TFT_eSPI.h>
@@ -21,50 +19,30 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 #define PIN_SERVO_YNEG 27
 #define PIN_THROTTLE 32
 
-#define MIN_MICROS 500
-#define MAX_MICROS 2500
+#ifdef MIN_PULSE_WIDTH
+#undef MIN_PULSE_WIDTH
+#define MIN_PULSE_WIDTH 540
+#endif // MIN_PULSE_WIDTH
+#ifdef MAX_PULSE_WIDTH
+#undef MAX_PULSE_WIDTH
+#define MAX_PULSE_WIDTH 2400
+#endif // MAX_PULSE_WIDTH
 
-double Kp=1, Ki=10, Kd=0;
+#ifndef NDEBUG
+#define LOOP_FREQ_HZ 2.0
+#else
+#define LOOP_FREQ_HZ 200.0
+#endif // NDEBUG
+#define LOOP_PERIOD (1 / LOOP_FREQ_HZ)
 
-//Define Variables we'll be connecting to
-double angle_x_set, angle_x, corr_x;
-PID pid_sx_pos(&angle_x, &corr_x, &angle_x_set, Kp, Ki, Kd, DIRECT);
+#define SERVO_ANGLE_MIN    -45
+#define SERVO_ANGLE_MAX     45
 
-float convertRawGyro(int gRaw) {
-    float g = (gRaw * 1000.0) / 32768.0;
-    return g;
-}
+#ifdef I2C_SDA
+#undef I2C_SDA
+#define I2C_SDA 19
+#endif // I2C_SDA
 
-float convertRawAccel(int aRaw) {
-    float a = (aRaw * 2.0) / 32768.0;
-    return a;
-}
-
-class IServo {
-public:
-    IServo() { }
-    IServo(uint8_t pin) {
-
-	    _servoIndex = ESP32_ISR_Servos.setupServo(pin, MIN_MICROS, MAX_MICROS);
-        
-    }
-    void setAngle(int angle) {
-        ESP32_ISR_Servos.setPosition(_servoIndex, angle + 90);
-    }
-
-private:
-    int8_t _servoIndex;
-};
-
-void axesToVector(std::array<float, 3> &vec, float ax, float ay, float az) {
-    vec[0] = ax;
-    vec[1] = ay;
-    vec[2] = az;
-}
-
-float vectorLength(std::array<float, 3> &vec) {
-    return sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
-}
 
 void setup() {
     Serial.begin(1000000);
@@ -76,94 +54,64 @@ void setup() {
     tft.fillScreen(TFT_BLACK);
     tft.drawString("Hello", 0, 50, 4);
     #endif // TFT_DISPLAY
-
-	// ESP32PWM::allocateTimer(0); 
-
-    //turn the PID on
-    pid_sx_pos.SetMode(AUTOMATIC);
-    pid_sx_pos.SetSampleTime(1);
-    pid_sx_pos.SetOutputLimits(-90, 90);
-
-    ESP_LOGI("main", "Starting BMI160");
-
-    ESP_LOGD("main", "Initializing IMU");
-    BMI160.begin(BMI160GenClass::I2C_MODE, Wire, 0x68, 0);
-    ESP_LOGD("main", "Getting device ID");
-    uint8_t dev_id = BMI160.getDeviceID();
-
-    ESP_LOGI("main", "Device ID: %d", dev_id);
-
-    // Set the accelerometer range to 250 degrees/second
-    ESP_LOGD("main", "Setting accelerometer range ...");
-    BMI160.setFullScaleGyroRange(BMI160_GYRO_RANGE_1000);
-    ESP_LOGD("main", "Setting accelerometer range done.");
-    BMI160.setFullScaleAccelRange(BMI160_ACCEL_RANGE_2G);
-
-
-	ESP32_ISR_Servos.useTimer(0);
 }
 
 void loop() {
-    int gxRaw, gyRaw, gzRaw;         // raw gyro values
-    int axRaw, ayRaw, azRaw;         // raw accelerometer values
-    float gx = 0, gy = 0, gz = 0;
-    float ax = 0, ay = 0, az = 0;
-    std::array<float, 3> vecAcc;
+    pid_params_t pid_params = {
+        .kp = 1,
+        .ki = 2,
+        .kd = 0,
+        .sampling_period = LOOP_PERIOD  // seconds
+    };
 
-    uint64_t iter = 0;
+    // Setup the aircraft
+    rocket_param_t rocket_params = {
+        .loop_period = LOOP_PERIOD,  // seconds
+        .angle_min = SERVO_ANGLE_MIN,
+        .angle_max = SERVO_ANGLE_MAX,
+        .max_thrust = 7.0,  // Newtons
+        .mass = 1.0,  // kg
+        .servo_pin_xpos = PIN_SERVO_XPOS,
+        .servo_pin_ypos = PIN_SERVO_YPOS,
+        .servo_pin_xneg = PIN_SERVO_XNEG,
+        .servo_pin_yneg = PIN_SERVO_YNEG,
+        .servo_pin_throttle = PIN_THROTTLE
+    };
+    
 
-    IServo servoXPos(PIN_SERVO_XPOS);
-    IServo servoYPos(PIN_SERVO_YPOS);
-    IServo servoXNeg(PIN_SERVO_XNEG);
-    IServo servoYNeg(PIN_SERVO_YNEG);
-    IServo throttle(PIN_THROTTLE);
+    ESP_LOGI("main", "Creating aircraft");
+    Rocket<IMU, PIDRegulator, Remote> rocket(rocket_params);
 
+    rocket.setup_regulator(&pid_params);
+
+    ESP_LOGI("main", "Setting up rocket");
+        
+    #ifdef NDEBUG
+    ESP_LOGW("main", "Pre-flight initiating pre-flight check");
+    rocket.pre_flight_check();  // Turn on after testing
+    #endif // NDEBUG
+
+
+    uint64_t loopn = 0;
+    ESP_LOGI("main", "Entering main loop");
     while(1) {
         auto start = std::chrono::high_resolution_clock::now();
-        // read raw gyro measurements from device
-        BMI160.readGyro(gxRaw, gyRaw, gzRaw);
-        BMI160.readAccelerometer(axRaw, ayRaw, azRaw);
 
-        // convert the raw accelerometer data to degrees/second
-        ax = convertRawAccel(axRaw);
-        ay = convertRawAccel(ayRaw);
-        az = convertRawAccel(azRaw);
-
-        axesToVector(vecAcc, ax, ay, az);
-        float len = vectorLength(vecAcc);
-        // convert to unit vector
-        for (auto &v : vecAcc) {
-            v /= len;
-        }
-        len = vectorLength(vecAcc);
-
-        // ESP_LOGI("main", "BMI160", "Accel: %f, %f, %f", ax, ay, az);
-        // convert the raw gyro data to degrees/second
-        gx = convertRawGyro(gxRaw);
-        gy = convertRawGyro(gyRaw);
-        gz = convertRawGyro(gzRaw);
-        angle_x_set = 0;
-        if(ay >= 1.0) ay = 1.0;
-        if(ay <= -1.0) ay = -1.0;
-        float asiny = asin(ay);
-        angle_x = asin(ay) * -180 / M_PI;
-        pid_sx_pos.Compute();
-
-        float rotationX = gx * 0.001;  // 1000˚/s -> 1˚/ms
-
-        servoYPos.setAngle(-angle_x + rotationX*50);
+        rocket.update();
+        rocket.calculate_corrections();
+        rocket.steer();
 
         auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        int dt = duration.count();
-        if (dt < 1000) {
-            delayMicroseconds(1000 - dt);
+        auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        int dt = duration_us.count();
+
+        if(loopn++ % 100 == 0) {
+            rocket.print_status();
+            std::cout << "Loop duration: " << dt << " us" << std::endl << std::endl;
         }
-        if (iter++ % 100 == 0) {
-            // ESP_LOGI("main", "Angle: " << angle_x << ", " << corr_x << ", dt: " << dt << "s");
-            ESP_LOGI("main", "Angle: %f, %f, dt: %d", angle_x, corr_x, dt);
-            // print vector length
-            ESP_LOGI("main", "Vector length: %f", len);
+            
+        if (dt < LOOP_PERIOD * 1e6) {
+            delayMicroseconds(LOOP_PERIOD * 1e6 - dt);
         }
     }
 }

@@ -58,8 +58,8 @@ void setup() {
 
 void loop() {
     pid_params_t pid_params = {
-        .kp = 1,
-        .ki = 2,
+        .kp = 3,
+        .ki = 3,
         .kd = 0,
         .sampling_period = LOOP_PERIOD  // seconds
     };

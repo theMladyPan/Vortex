@@ -64,22 +64,22 @@ template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::calculate_corrections() {
     ESP_LOGI("Rocket", "Calculating corrections");
     // calculate corrections
+
     _controller->update();
     _controller->get_desired_orientation(_desired_orientation);
     _controller->get_desired_throttle(_desired_throttle);
 
     _regulator->update();
 
-    _throttle_value = _desired_throttle;
-    _xpos_value = _corrections[0] + _corrections[2];
-    _ypos_value = _corrections[1] + _corrections[2];
-    _xneg_value = -_corrections[0] + _corrections[2];
-    _yneg_value = -_corrections[1] + _corrections[2];
+    float roll = _corrections[0];
+    float pitch = _corrections[1];
+    float yaw = _corrections[2];
 
-    set_servo_xpos(_xpos_value);
-    set_servo_ypos(_ypos_value);
-    set_servo_xneg(_xneg_value);
-    set_servo_yneg(_yneg_value);
+    _throttle_value = _desired_throttle;
+    _xpos_value = roll + yaw;
+    _ypos_value = pitch + yaw;
+    _xneg_value = -roll + yaw;
+    _yneg_value = -pitch + yaw;
 }
 
 
@@ -87,9 +87,10 @@ template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::steer() {
     ESP_LOGI("Rocket", "Steering");
 
-    float roll = _corrections[0];
-    float pitch = _corrections[1];
-    float yaw = _corrections[2];
+    set_servo_xpos(_xpos_value);
+    set_servo_ypos(_ypos_value);
+    set_servo_xneg(_xneg_value);
+    set_servo_yneg(_yneg_value);
     
     set_throttle();
 }

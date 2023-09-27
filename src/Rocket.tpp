@@ -11,6 +11,7 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::convert_acc_to_orientation() {
     // convert _acc_vals to roll, pitch
     double current_acceleration = _acc_vals.norm() - 1;  // g
     _throttle_corr = -current_acceleration;
+    ESP_LOGD("Rocket", "Current acceleration: %f", current_acceleration);
 
     Eigen::Vector3d acc_norm = _acc_vals.normalized();
 
@@ -23,7 +24,7 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::convert_acc_to_orientation() {
     }
 
     // true yaw can be only obtained from GPS/Magnetometer, approximate from gyro:
-    _current_orientation[2] += _gyro_vals[2];
+    _current_orientation[2] = _gyro_vals[2];
 }
 
 
@@ -41,13 +42,13 @@ Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::Rocket(rocket_param_t &params) {
     _servo_ypos = new IServo(params.servo_pin_ypos);
     _servo_xneg = new IServo(params.servo_pin_xneg);
     _servo_yneg = new IServo(params.servo_pin_yneg);
-    _throttle = new IServo(params.servo_pin_throttle);
+    _throttle = new IServo(params.servo_pin_throttle, 1000, 2000);  // throttle uses 1000-2000 us range
 }
 
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::setup() {
-    _imu.calibrate(100);
+    _imu->calibrate(1000);
 }
 
 
@@ -57,7 +58,7 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::setup_regulator(void* params) {
     static_assert(std::is_base_of<RegulatorBase, REGULATOR_T>::value, "REGULATOR_T must be derived from RegulatorBase");
 
     _regulator = new REGULATOR_T(&_current_orientation, &_desired_orientation, &_corrections);
-    _regulator->setup(&params, _params.angle_min, _params.angle_max);
+    _regulator->setup(params, _params.angle_min, _params.angle_max);
 }
 
 
@@ -69,6 +70,8 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::calculate_corrections() {
     _controller->update();
     _controller->get_desired_orientation(_desired_orientation);
     _controller->get_desired_throttle(_desired_throttle);
+    ESP_LOGD("Rocket", "Current orientation: %f, %f, %f", _current_orientation[0], _current_orientation[1], _current_orientation[2]);
+    ESP_LOGD("Rocket", "Desired orientation: %f, %f, %f", _desired_orientation[0], _desired_orientation[1], _desired_orientation[2]);
 
     _regulator->update();
 
@@ -76,11 +79,14 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::calculate_corrections() {
     float pitch = _corrections[1];
     float yaw = _corrections[2];
 
-    _throttle_value = _desired_throttle;
-    _xpos_value = roll + yaw;
-    _ypos_value = pitch + yaw;
-    _xneg_value = -roll + yaw;
-    _yneg_value = -pitch + yaw;
+    _throttle_value = _throttle_corr * 100 + (_desired_throttle - 25);
+    _xpos_value = -roll + yaw;
+    _ypos_value = -pitch + yaw;
+    _xneg_value = roll + yaw;
+    _yneg_value = pitch + yaw;
+
+    ESP_LOGD("Rocket", "Corrections RPY: %f, %f, %f", roll, pitch, yaw);
+    ESP_LOGD("Rocket", "Throttle: %f", _throttle_value);
 }
 
 
@@ -99,13 +105,13 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::steer() {
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::set_throttle() {
-    ESP_LOGI("Rocket", "Setting servo throttle");
     float percent = _throttle_value;
     if (percent > 100) {
         percent = 100;
     } else if (percent < 0) {
         percent = 0;
     }
+    ESP_LOGI("Rocket", "Setting throttle to %f", percent);
     _throttle->set_percent(percent);
 }
 
@@ -128,48 +134,48 @@ void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::update() {
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::set_servo_xpos(float angle) {
-    ESP_LOGI("Rocket", "Setting servo xpos");
     if (angle > _params.angle_max) {
         angle = _params.angle_max;
     } else if (angle < _params.angle_min) {
         angle = _params.angle_min;
     }
+    ESP_LOGI("Rocket", "Setting servo xpos to %f", angle);
     _servo_xpos->set_angle(angle);
 }
 
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::set_servo_ypos(float angle) {
-    ESP_LOGI("Rocket", "Setting servo ypos");
     if (angle > _params.angle_max) {
         angle = _params.angle_max;
     } else if (angle < _params.angle_min) {
         angle = _params.angle_min;
     }
+    ESP_LOGI("Rocket", "Setting servo ypos to %f", angle);
     _servo_ypos->set_angle(angle);
 }
 
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::set_servo_xneg(float angle) {
-    ESP_LOGI("Rocket", "Setting servo xneg");
     if (angle > _params.angle_max) {
         angle = _params.angle_max;
     } else if (angle < _params.angle_min) {
         angle = _params.angle_min;
     }
+    ESP_LOGI("Rocket", "Setting servo xneg to %f", angle);
     _servo_xneg->set_angle(angle);
 }
 
 
 template <typename IMU_T, typename REGULATOR_T, typename CONTROLLER_T>
 void Rocket<IMU_T, REGULATOR_T, CONTROLLER_T>::set_servo_yneg(float angle) {
-    ESP_LOGI("Rocket", "Setting servo yneg");
     if (angle > _params.angle_max) {
         angle = _params.angle_max;
     } else if (angle < _params.angle_min) {
         angle = _params.angle_min;
     }
+    ESP_LOGI("Rocket", "Setting servo yneg to %f", angle);
     _servo_yneg->set_angle(angle);
 }
 

@@ -29,14 +29,14 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 #endif // MAX_PULSE_WIDTH
 
 #ifndef NDEBUG
-#define LOOP_FREQ_HZ 2.0
+#define LOOP_FREQ_HZ 500.0
 #else
 #define LOOP_FREQ_HZ 200.0
 #endif // NDEBUG
 #define LOOP_PERIOD (1 / LOOP_FREQ_HZ)
 
-#define SERVO_ANGLE_MIN    -45
-#define SERVO_ANGLE_MAX     45
+#define SERVO_ANGLE_MIN    -30
+#define SERVO_ANGLE_MAX     30
 
 #ifdef I2C_SDA
 #undef I2C_SDA
@@ -45,7 +45,7 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 
 
 void setup() {
-    Serial.begin(1000000);
+    Serial.begin(512000);
     Wire.begin(I2C_SDA, I2C_SCL, 1000000); // join i2c bus (address optional for master
     #ifdef TFT_DISPLAY
     tft.init();
@@ -58,8 +58,8 @@ void setup() {
 
 void loop() {
     pid_params_t pid_params = {
-        .kp = 3,
-        .ki = 3,
+        .kp = 1,
+        .ki = 1,
         .kd = 0,
         .sampling_period = LOOP_PERIOD  // seconds
     };
@@ -83,6 +83,7 @@ void loop() {
     Rocket<IMU, PIDRegulator, Remote> rocket(rocket_params);
 
     rocket.setup_regulator(&pid_params);
+    rocket.setup();
 
     ESP_LOGI("main", "Setting up rocket");
         

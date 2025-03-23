@@ -28,56 +28,44 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 #define MAX_PULSE_WIDTH 2400
 #endif // MAX_PULSE_WIDTH
 
-#ifndef NDEBUG
 #define LOOP_FREQ_HZ 500.0
-#else
-#define LOOP_FREQ_HZ 200.0
-#endif // NDEBUG
 #define LOOP_PERIOD (1 / LOOP_FREQ_HZ)
 
-#define SERVO_ANGLE_MIN    -30
-#define SERVO_ANGLE_MAX     30
+#define SERVO_ANGLE_MIN -30
+#define SERVO_ANGLE_MAX 30
 
 #ifdef I2C_SDA
 #undef I2C_SDA
 #define I2C_SDA 19
 #endif // I2C_SDA
 
-
-void setup() {
+void setup()
+{
     Serial.begin(512000);
     Wire.begin(I2C_SDA, I2C_SCL, 1000000); // join i2c bus (address optional for master
-    #ifdef TFT_DISPLAY
-    tft.init();
-    tft.setTextFont(1);
-    tft.setRotation(3);
-    tft.fillScreen(TFT_BLACK);
-    tft.drawString("Hello", 0, 50, 4);
-    #endif // TFT_DISPLAY
 }
 
-void loop() {
+void loop()
+{
     pid_params_t pid_params = {
-        .kp = 1,
-        .ki = 1,
+        .kp = 0.5,
+        .ki = 2,
         .kd = 0,
-        .sampling_period = LOOP_PERIOD  // seconds
+        .sampling_period = LOOP_PERIOD // seconds
     };
 
     // Setup the aircraft
     rocket_param_t rocket_params = {
-        .loop_period = LOOP_PERIOD,  // seconds
+        .loop_period = LOOP_PERIOD, // seconds
         .angle_min = SERVO_ANGLE_MIN,
         .angle_max = SERVO_ANGLE_MAX,
-        .max_thrust = 7.0,  // Newtons
-        .mass = 1.0,  // kg
+        .max_thrust = 7.0, // Newtons
+        .mass = 0.45,      // kg
         .servo_pin_xpos = PIN_SERVO_XPOS,
         .servo_pin_ypos = PIN_SERVO_YPOS,
         .servo_pin_xneg = PIN_SERVO_XNEG,
         .servo_pin_yneg = PIN_SERVO_YNEG,
-        .servo_pin_throttle = PIN_THROTTLE
-    };
-    
+        .servo_pin_throttle = PIN_THROTTLE};
 
     ESP_LOGI("main", "Creating aircraft");
     Rocket<IMU, PIDRegulator, Remote> rocket(rocket_params);
@@ -86,16 +74,16 @@ void loop() {
     rocket.setup();
 
     ESP_LOGI("main", "Setting up rocket");
-        
-    #ifdef NDEBUG
-    ESP_LOGW("main", "Pre-flight initiating pre-flight check");
-    rocket.pre_flight_check();  // Turn on after testing
-    #endif // NDEBUG
 
+#ifdef NDEBUG
+    ESP_LOGW("main", "Pre-flight initiating pre-flight check");
+    rocket.pre_flight_check(); // Turn on after testing
+#endif                         // NDEBUG
 
     uint64_t loopn = 0;
     ESP_LOGI("main", "Entering main loop");
-    while(1) {
+    while (1)
+    {
         auto start = std::chrono::high_resolution_clock::now();
 
         rocket.update();
@@ -106,12 +94,15 @@ void loop() {
         auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         int dt = duration_us.count();
 
-        if(loopn++ % 100 == 0) {
+        if (loopn++ % 300 == 0)
+        {
             rocket.print_status();
-            std::cout << "Loop duration: " << dt << " us" << std::endl << std::endl;
+            std::cout << "Loop duration: " << dt << " us" << std::endl
+                      << std::endl;
         }
-            
-        if (dt < LOOP_PERIOD * 1e6) {
+
+        if (dt < LOOP_PERIOD * 1e6)
+        {
             delayMicroseconds(LOOP_PERIOD * 1e6 - dt);
         }
     }

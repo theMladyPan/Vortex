@@ -2,6 +2,18 @@
 ## Overview
 This repository contains the implementation of a rocket control system. It is designed to control the orientation and thrust of a rocket using various sensors and actuators. The system is written in C++ and is intended for use with embedded systems, such as those based on Arduino or ESP32 platforms.
 
+## Connections
+Connect Pin 23 to i-BUS (e.g. FS-iA6B RX)
+Throttle to Pin 32
+Servos:
+ * X positive to 33
+ * X negative to 26
+ * Y positive to 25
+ * Y negative to 27
+IMU:
+ * SDA to 19
+ * SCL to 22
+
 ## Features
 1. Sensor Integration - The system integrates various sensors to collect data necessary for rocket control:
 BMI160 Inertial Measurement Unit (IMU): The IMU sensor provides information about the rocket's orientation and angular velocity.
